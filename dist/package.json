@@ -1,5 +1,5 @@
 {
-  "name": "@merlinhut/context",
+  "name": "@merlinshut/context",
   "version": "0.0.1",
   "description": "Context Managment for wizards",
   "main": "lib/es5/index.js",
