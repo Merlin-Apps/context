@@ -1,0 +1,35 @@
+{
+  "name": "merlinshut-context",
+  "version": "0.0.1",
+  "description": "Context State Management - Service with a Subject context",
+  "main": "index.ts",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "compile": "rm -rf dist/lib && tsc && tsc --build tsconfig.es5.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Merlin-Apps/context.git"
+  },
+  "keywords": [
+    "context",
+    "state",
+    "managment",
+    "rxjs",
+    "subject",
+    "push",
+    "arquitecture"
+  ],
+  "author": "César D. Smerling",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Merlin-Apps/context/issues"
+  },
+  "homepage": "https://github.com/Merlin-Apps/context#readme",
+  "devDependencies": {
+    "typescript": " 4.1.5"
+  },
+  "dependencies": {
+    "rxjs": "^6.6.7"
+  }
+}
