@@ -33,7 +33,7 @@ export type PickerObj<T> = {
 
 //For effect function
 export type ProjectFunction<Type, Result> = (type$: Observable<Type>) => Result;
-export type ContextFactory<T, A = T[keyof T]> = {
+export type ContextFactory<T> = {
   state$: Observable<T>;
   pick: <Result>(projector: Projector<Result, T>) => Observable<Result>;
   event: <Result>(projector: Projector<Result, T>) => Observable<Result>;
@@ -52,10 +52,11 @@ export type ContextFactory<T, A = T[keyof T]> = {
   emitError: (e: Error) => Observable<Error>;
   clearError: () => void;
 };
-export function createContextFactory<T, D = void>(
-  contextDefinition: ContextDefinition<T>
+export function createContextFactory<T>(
+  initialState: T,
+  config: ContextConfig = { autoLoading: true, log: false }
 ): ContextFactory<T> {
-  const { initialState, autoLoading = true, log = false } = contextDefinition;
+  const { autoLoading, log } = config;
   /*** INITIALIZATION ***/
   //Enable log
   const enableLog = log;
@@ -135,8 +136,25 @@ export function createContextFactory<T, D = void>(
 
   //Update method
   const update = (updateFunction: UpdateFunction<T>): void => {
-    if (enableLog) console.log("%cUpdate", style, context.value);
-    context.next(updateFunction(context.value));
+    const updatedState = updateFunction(context.value);
+    //Verify that the updated state produces the same keys as the initial state
+    const currentKeys = Object.keys(initialState);
+    const updatedKeys = Object.keys(updatedState);
+    let diffKey = [];
+
+    updatedKeys.forEach((key) => {
+      if (!currentKeys.includes(key)) diffKey.push(key);
+    });
+
+    //Only check because user can add new keys, not less or repeat one (typescript checks for us)
+    if (currentKeys.length !== updatedKeys.length) {
+      throw new Error(
+        `The key/keys ${diffKey.toString()} is/are not defined in the State of the context.`
+      );
+    }
+
+    if (enableLog) console.log("%cUpdate", style, updatedState);
+    context.next(updatedState);
   };
   //Update Partial Method
   const updatePImpl =
