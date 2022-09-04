@@ -1,12 +1,26 @@
 import {
+  AsyncSubject,
   BehaviorSubject,
+  merge,
   Observable,
   of,
   ReplaySubject,
   Subject,
   Subscription,
 } from "rxjs";
-import { distinctUntilChanged, map, pluck, take, tap } from "rxjs/operators";
+import {
+  catchError,
+  distinctUntilChanged,
+  filter,
+  finalize,
+  first,
+  last,
+  map,
+  pluck,
+  switchMap,
+  take,
+  tap,
+} from "rxjs/operators";
 import { logEffect } from "./proxy-logger";
 
 export type ContextDefinition<T> = {
@@ -40,10 +54,14 @@ export type ContextFactory<T> = {
   pluck: <K extends keyof T>(key: K) => Observable<T[K]>;
   picker: PickerObj<T>;
   update: (a: UpdateFunction<T>) => void;
-  updateP: <K extends Partial<T>>(partialState: K) => void;
+  patch: <K extends Partial<T>>(partialState: K) => void;
   effect: <Type, Result, Rest = Result extends Observable<infer A> ? A : never>(
     effect: ProjectFunction<Type, Result>
-  ) => (param: Type, returnFunc?: (p: Rest) => void) => Observable<Rest>;
+  ) => (
+    param: Type,
+    returnFunc?: (p: Rest) => void,
+    returnError?: (p: Error) => void
+  ) => Observable<Rest>;
   destroy: () => void;
   loading$: Observable<boolean>;
   startLoading: () => void;
@@ -157,11 +175,11 @@ export function createContextFactory<T>(
     context.next(updatedState);
   };
   //Update Partial Method
-  const updatePImpl =
+  const patchImpl =
     <K extends Partial<T>>(partialState: K) =>
     (state: T) => ({ ...state, ...partialState });
-  const updateP = <K extends Partial<T>>(partialState: K) =>
-    update(updatePImpl(partialState));
+  const patch = <K extends Partial<T>>(partialState: K) =>
+    update(patchImpl(partialState));
   //Effect method -
   /*** Result is the observable with the ending value of the observable created in the effect ***/
   /*** Rest is the type value of that observable ***/
@@ -170,43 +188,81 @@ export function createContextFactory<T>(
     Result,
     Rest = Result extends Observable<infer A> ? A : never
   >(
-    effect: ProjectFunction<Type, Result>
-  ): ((param: Type, returnFunc?: (p: Rest) => void) => Observable<Rest>) => {
+    trigger: ProjectFunction<Type, Result>
+  ): ((
+    param: Type,
+    returnFunc?: (p: Rest) => void,
+    returnError?: (p: Error) => void
+  ) => Observable<Rest>) => {
     //Effect create parameter observable
     const effectSubject = new Subject<Type>();
     const effectObservable = effectSubject.asObservable();
-    //Effect return
-    const effectReturnSubject = new Subject<Rest>();
-    const effectReturn$ = effectReturnSubject.asObservable();
+    //Effect success return
+    const effectSuccessSubject = new Subject<Rest>();
+    const effectSucess$ = effectSuccessSubject.asObservable();
+    //Effect error return
+    const effectErrorSubject = new Subject<Error>();
+    const effectError$ = effectErrorSubject.asObservable();
     //Observable returned by the created effect by the user
-    const returnValue = effect(effectObservable);
+    const returnValue = trigger(effectObservable);
     const returnFunction = <Observable<Rest>>(<unknown>returnValue);
+
     const finalizeEffect = () => {
       if (autoLoading) loading.next(false);
       if (enableLog) console.groupEnd();
     };
-    subscriptions.push(
-      returnFunction.subscribe((value) => {
-        finalizeEffect();
-        effectReturnSubject.next(value);
-      })
-    );
+
+    //TODO: Not sure if is neccessary (for destroy, complete effects)
     effectSubjects.push(effectSubject);
     //Effect method to call
-    return (param: Type, returnFunc?: (p: Rest) => void): Observable<Rest> => {
+    return (
+      param: Type,
+      returnFunc?: (p: Rest) => void,
+      returnError?: (e: Error) => void
+    ): Observable<Rest> => {
       if (enableLog) logEffect();
       if (autoLoading) loading.next(true);
+
+      const returnObsSubject = new ReplaySubject<Rest>(1);
+      const returnObs$ = returnObsSubject.asObservable();
+
       //Run return function if created as parameter
       if (returnFunc) {
-        effectReturn$.pipe(take(1)).subscribe((v) => {
-          if (v instanceof Error || v instanceof TypeError) return;
+        effectSucess$.pipe(take(1)).subscribe((v) => {
           returnFunc(v);
         });
       }
+      //Run the error function if created as parameter
+      if (returnError) {
+        effectError$.pipe(take(1)).subscribe((v) => {
+          returnError(v);
+        });
+      }
+
+      //Subscribe once to the trigger observable created by the user
+      returnFunction
+        .pipe(
+          take(1),
+          tap((value) => {
+            finalizeEffect();
+            effectSuccessSubject.next(value);
+            returnObsSubject.next(value);
+          }),
+          catchError((e) => {
+            finalizeEffect();
+            effectErrorSubject.next(e);
+            returnObsSubject.error(e);
+            //Stop throw error propagation
+            return of(e);
+          })
+        )
+        .subscribe();
+
       //Fire the effect with the passed parameter
       effectSubject.next(param);
-      //Return the observable to use it if needed.
-      return effectReturn$;
+
+      //Return the observable to use it, if needed.
+      return returnObs$;
     };
   };
   //Clean the context
@@ -223,7 +279,7 @@ export function createContextFactory<T>(
     pluck: pluckContext,
     picker,
     update,
-    updateP,
+    patch,
     effect,
     destroy,
     loading$,
