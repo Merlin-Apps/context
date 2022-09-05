@@ -1,3 +1,30 @@
+# Changes in 0.2.0
+
+Released 09/05/2022
+Correction of bugs.
+
+### Breaking changes
+
+- Creation of context parameters changed. The object as parameter was replaced by two parameters. First parameter is the initialState, second parameter is an object with the configs properties (autoLoading and log)
+
+### Depecrations
+
+- updateP: Now is name patch, works the same way as before. Use patch instead of updateP, updateP will be removed in future versions.
+
+### Bug Fixes
+
+- [#1](https://github.com/Merlin-Apps/context/issues/1) - Returns functions on effect don't return the error as a value.
+- [#2](https://github.com/Merlin-Apps/context/issues/2) - Updated now throws error when passed attributes that not exists in state. This is produces because of [Type compatibilty](https://www.typescriptlang.org/docs/handbook/type-compatibility.html#starting-out) in typescript, was needed to check the attributes types.
+
+### New Features
+
+- effect: now has a third parameter that receives a return error function as callback to manage the error where the effect is fired. Similar to return function parameter.
+- effect: Now returns correctly an observable to manage the returns values of the effect. Could be used for ex. to combine with other observables or effects.
+
+### Development
+
+- added vitest and oberserverspy to create unit testing for the context factory.
+
 # Changes in 0.0.1
 
 Released 09/01/2022

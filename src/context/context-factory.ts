@@ -1,7 +1,5 @@
 import {
-  AsyncSubject,
   BehaviorSubject,
-  merge,
   Observable,
   of,
   ReplaySubject,
@@ -11,13 +9,7 @@ import {
 import {
   catchError,
   distinctUntilChanged,
-  filter,
-  finalize,
-  first,
-  last,
   map,
-  pluck,
-  switchMap,
   take,
   tap,
 } from "rxjs/operators";
@@ -54,6 +46,10 @@ export type ContextFactory<T> = {
   pluck: <K extends keyof T>(key: K) => Observable<T[K]>;
   picker: PickerObj<T>;
   update: (a: UpdateFunction<T>) => void;
+  /**
+   * @deprecated name changed, use patch instead. Will be removed in future versions
+   */
+  updateP: <K extends Partial<T>>(partialState: K) => void;
   patch: <K extends Partial<T>>(partialState: K) => void;
   effect: <Type, Result, Rest = Result extends Observable<infer A> ? A : never>(
     effect: ProjectFunction<Type, Result>
@@ -178,8 +174,10 @@ export function createContextFactory<T>(
   const patchImpl =
     <K extends Partial<T>>(partialState: K) =>
     (state: T) => ({ ...state, ...partialState });
+
   const patch = <K extends Partial<T>>(partialState: K) =>
     update(patchImpl(partialState));
+  const updateP = patch;
   //Effect method -
   /*** Result is the observable with the ending value of the observable created in the effect ***/
   /*** Rest is the type value of that observable ***/
@@ -279,6 +277,7 @@ export function createContextFactory<T>(
     pluck: pluckContext,
     picker,
     update,
+    updateP,
     patch,
     effect,
     destroy,
