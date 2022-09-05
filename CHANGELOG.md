@@ -3,6 +3,8 @@
 Released 09/05/2022
 Correction of bugs.
 
+[npm - @merlinshut/context@0.2.0](https://www.npmjs.com/package/@merlinshut/context/v/0.2.0)
+
 ### Breaking changes
 
 - Creation of context parameters changed. The object as parameter was replaced by two parameters. First parameter is the initialState, second parameter is an object with the configs properties (autoLoading and log)
@@ -29,6 +31,8 @@ Correction of bugs.
 
 Released 09/01/2022
 First publication of context used in test projects at Merlin's Hut
+
+[npm - @merlinshut/context@0.0.1](https://www.npmjs.com/package/@merlinshut/context/v/0.0.1)
 
 ### Includes:
 

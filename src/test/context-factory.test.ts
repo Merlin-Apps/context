@@ -1,5 +1,5 @@
-import { defer, isObservable, Observable, of, throwError } from "rxjs";
-import { catchError, switchMap, take, takeUntil } from "rxjs/operators";
+import { isObservable, Observable, of, throwError } from "rxjs";
+import { switchMap, take, takeUntil } from "rxjs/operators";
 import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
 import { ContextFactory, createContextFactory } from "../context";
 
