@@ -1,3 +1,4 @@
+import { createLoadings } from "./loadings";
 import {
   BehaviorSubject,
   Observable,
@@ -14,6 +15,7 @@ import {
   tap,
 } from "rxjs/operators";
 import { logEffect } from "./proxy-logger";
+import { UUID } from "./utils";
 
 export type ContextDefinition<T> = {
   initialState: T;
@@ -60,8 +62,6 @@ export type ContextFactory<T> = {
   ) => Observable<Rest>;
   destroy: () => void;
   loading$: Observable<boolean>;
-  startLoading: () => void;
-  stopLoading: () => void;
   error$: Observable<Error | null>;
   emitError: (e: Error) => Observable<Error>;
   clearError: () => void;
@@ -83,14 +83,11 @@ export function createContextFactory<T>(
   const context = new BehaviorSubject(initialState);
   const state$ = context.asObservable();
   //Manage auto-loading
-  const loading = new ReplaySubject<boolean>(1);
-  const loadingLog$ = loading
-    .asObservable()
-    .pipe(tap((value) => enableLog && console.log("%cLoading", style, value)));
-  const loading$ = loading.asObservable();
-  //Loading methods
-  const startLoading = () => loading.next(true);
-  const stopLoading = () => loading.next(false);
+  const { loading$, registerLoading, startLoading, stopLoading } =
+    createLoadings();
+  const loadingLog$ = loading$.pipe(
+    tap((value) => enableLog && console.log("%cLoading", style, value))
+  );
   const loadingSub = loadingLog$.subscribe();
   subscriptions.push(loadingSub);
   //Manage auto-error catch for effects
@@ -167,7 +164,11 @@ export function createContextFactory<T>(
       );
     }
 
-    if (enableLog) console.log("%cUpdate", style, updatedState);
+    if (enableLog) {
+      console.log("%cUpdate", style, updatedState);
+      logEffect();
+      console.trace();
+    }
     context.next(updatedState);
   };
   //Update Partial Method
@@ -205,8 +206,11 @@ export function createContextFactory<T>(
     const returnValue = trigger(effectObservable);
     const returnFunction = <Observable<Rest>>(<unknown>returnValue);
 
+    const effectId = UUID();
+    registerLoading(effectId);
+
     const finalizeEffect = () => {
-      if (autoLoading) loading.next(false);
+      if (autoLoading) stopLoading(effectId);
       if (enableLog) console.groupEnd();
     };
 
@@ -219,7 +223,7 @@ export function createContextFactory<T>(
       returnError?: (e: Error) => void
     ): Observable<Rest> => {
       if (enableLog) logEffect();
-      if (autoLoading) loading.next(true);
+      if (autoLoading) startLoading(effectId);
 
       const returnObsSubject = new ReplaySubject<Rest>(1);
       const returnObs$ = returnObsSubject.asObservable();
@@ -282,8 +286,6 @@ export function createContextFactory<T>(
     effect,
     destroy,
     loading$,
-    startLoading,
-    stopLoading,
     error$,
     emitError,
     clearError,

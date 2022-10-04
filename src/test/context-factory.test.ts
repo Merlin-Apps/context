@@ -1,25 +1,17 @@
 import { isObservable, Observable, of, throwError } from "rxjs";
-import { switchMap, take, takeUntil } from "rxjs/operators";
-import { afterEach, beforeEach, describe, expect, it, vitest } from "vitest";
+import { delay, switchMap, take, takeUntil } from "rxjs/operators";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vitest,
+  vi,
+} from "vitest";
 import { ContextFactory, createContextFactory } from "../context";
 
 import { subscribeSpyTo } from "@hirez_io/observer-spy";
-
-export function subscribe<T>(
-  to$: Observable<T>,
-  takeCountOrUntil: number | Observable<void | object> = 1
-): T[] {
-  const values = [];
-
-  (isObservable(takeCountOrUntil)
-    ? to$.pipe(takeUntil(takeCountOrUntil))
-    : to$.pipe(take(takeCountOrUntil))
-  ).subscribe(
-    /*value*/ (v) => values.push(v),
-    /*error*/ (e) => values.push(e)
-  );
-  return values;
-}
 
 describe("ContextFactory", () => {
   type State = {
@@ -153,5 +145,47 @@ describe("ContextFactory", () => {
     expect(effectTwoSpy.getFirstValue()).toBe("Two effect");
     expect(effectErrorSpy.receivedError()).toBe(true);
     // expect(effectErrorSpy.getError()).toBe(effectError);
+  });
+
+  it("should parallel effects with different time don't override the auto loading", () => {
+    vi.useFakeTimers();
+    const effect1Time = 5000; //5 seconds
+    const effect2Time = 2000; //2 Seconds;
+    const effect1ToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((a) => of(a + " effect 1").pipe(delay(effect1Time)))
+      )
+    );
+    const effect2ToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((a) => of(a + " effect 2").pipe(delay(effect2Time)))
+      )
+    );
+    const loadingSpy = subscribeSpyTo(context.loading$);
+
+    //After running must be initalized the loading with false
+    expect(loadingSpy.getFirstValue()).toBe(false);
+
+    //Run one effect and wait some time
+    effect1ToCall("Delayed");
+    vi.advanceTimersByTime(1000); //Advance less than effects times
+    expect(loadingSpy.getLastValue()).toBe(true);
+
+    //Run the second effect when the first one is running
+    effect2ToCall("Delayed");
+    vi.advanceTimersByTime(500); //Advance less than effects times
+    expect(loadingSpy.getLastValue()).toBe(true);
+
+    //Second effects finish but not the first one yet
+    vi.advanceTimersByTime(2500); //Advance less than effect1 time and more than effect2 time
+    expect(loadingSpy.getLastValue()).toBe(true);
+
+    //Second effects finish but not the first one yet
+    vi.advanceTimersByTime(5500); //Advance less than effect1 time and more than effect2 time
+    expect(loadingSpy.getLastValue()).toBe(false);
+
+    //Finish all effects
+    vi.runAllTimers();
+    expect(loadingSpy.getLastValue()).toBe(false);
   });
 });
