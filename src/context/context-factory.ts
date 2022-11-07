@@ -1,16 +1,22 @@
 import { createLoadings } from "./loadings";
 import {
   BehaviorSubject,
+  from,
   Observable,
   of,
+  pipe,
   ReplaySubject,
   Subject,
   Subscription,
 } from "rxjs";
 import {
   catchError,
+  concatMap,
   distinctUntilChanged,
+  exhaustMap,
   map,
+  mergeMap,
+  switchMap,
   take,
   tap,
 } from "rxjs/operators";
@@ -290,4 +296,136 @@ export function createContextFactory<T>(
     emitError,
     clearError,
   };
+}
+
+function fireEffect<H>(
+  apiCall: Observable<H>,
+  cb: (data: H) => void,
+  results?: { success?: string; error?: string }
+): Observable<H> {
+  const pipeCb = cb ? pipe(tap(cb)) : pipe(tap(() => {}));
+
+  return apiCall.pipe(
+    pipeCb,
+    tap((data: any) =>
+      this.update((state) => ({ ...state, success: results?.success }))
+    ),
+    catchError((e) => {
+      this.emitError(e);
+      return of(e);
+    })
+  );
+}
+
+//TODO: Make cb optional, cb could be managed by user in the apiCall Observable
+function createAsyncEffect<P, H>(
+  trigger: (params: P) => {
+    apiCall: Observable<H>;
+    cb: (data: H) => void;
+    success?: string;
+    error: string;
+  },
+  operation?: "switch" | "reject" | "concat" | "merge"
+) {
+  const cb: (params: P) => {
+    apiCall: Observable<H>;
+    cb: (data: H) => void;
+    success?: string;
+    error: string;
+  } = (params: P) => trigger(params);
+
+  const innerCb = ({
+    apiCall,
+    cb,
+    error,
+    success,
+  }: {
+    apiCall: Observable<H>;
+    cb: (data: H) => void;
+    success?: string;
+    error: string;
+  }) => this.fireEffect(apiCall, cb, { success, error });
+
+  const projector = (triggerParams$: Observable<P>) =>
+    triggerParams$.pipe(map(cb), this.innerCbOperation(innerCb, operation));
+
+  return this.effect(projector);
+}
+
+function createAsyncEffectPromise<P, H>(
+  trigger: (params: P) => Promise<string | void>,
+  error?: (params: P) => string,
+  operation?: "switch" | "reject" | "concat" | "merge"
+) {
+  let cachedError: string;
+  const cb: (params: P) => Observable<string | void> = (params: P) => {
+    cachedError = error ? error(params) : "";
+    return from(trigger(params));
+  };
+
+  const runMessagePipe = pipe(
+    tap((success: string | void) => console.log("Success Msg", success)),
+    catchError((e) => {
+      console.log("Error Msg", cachedError);
+      this.emitError(e);
+      return of(e);
+    })
+  );
+
+  const projector = (triggerParams$: Observable<P>) =>
+    triggerParams$.pipe(this.operationOb(cb, operation), runMessagePipe);
+  return this.effect(projector);
+}
+
+function operationOb<P>(
+  cb: (params: P) => Observable<string | void>,
+  operation?: "switch" | "reject" | "concat" | "merge"
+) {
+  switch (operation) {
+    case "switch": {
+      return switchMap(cb);
+    }
+    case "reject": {
+      return exhaustMap(cb);
+    }
+    case "concat": {
+      return concatMap(cb);
+    }
+    case "merge": {
+      return mergeMap(cb);
+    }
+    //Fallback always to switchMap
+    default: {
+      return switchMap(cb);
+    }
+  }
+}
+
+function innerCbOperation<H>(
+  cb: (params: {
+    apiCall: Observable<H>;
+    cb: (data: H) => void;
+    success?: string;
+    error: string;
+  }) => Observable<H>,
+  operation?: "switch" | "reject" | "concat" | "merge"
+) {
+  switch (operation) {
+    case "switch": {
+      return switchMap(cb);
+    }
+    case "reject": {
+      return exhaustMap(cb);
+    }
+    case "concat": {
+      return concatMap(cb);
+    }
+    case "merge": {
+      return mergeMap(cb);
+    }
+    //Fallback always to switchMap
+    default: {
+      return switchMap(cb);
+    }
+  }
 }
