@@ -263,7 +263,7 @@ export function createContextFactory<T, Success = string>(
             returnObsSubject.error(e);
             //Stop throw error propagation
             return of(e);
-          })f
+          })
         )
         .subscribe();
 
