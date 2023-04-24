@@ -188,4 +188,70 @@ describe("ContextFactory", () => {
     vi.runAllTimers();
     expect(loadingSpy.getLastValue()).toBe(false);
   });
+
+  it("should pick method get a part of the state with a callback", () => {
+    const name$ = context.pick((state) => state.name);
+    const age$ = context.pick((state) => state.age);
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+  });
+
+  it("should pluck method get a part of the state with a string literal", () => {
+    const name$ = context.pluck("name");
+    const age$ = context.pluck("age");
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+  });
+
+  it("should picker method return an object with each part of the state as selectors", () => {
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+  });
+
+  it("should update method update the actual value of the state", () => {
+    const { name$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+
+    context.update((state) => ({ ...state, name: "Will" }));
+    expect(name.getFirstValue()).toEqual("John");
+    expect(name.getLastValue()).toEqual("Will");
+  });
+
+  it("should patch method update the actual value of the state", () => {
+    const { name$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+
+    context.patch({ name: "Will" });
+    expect(name.getFirstValue()).toEqual("John");
+    expect(name.getLastValue()).toEqual("Will");
+  });
+
+  it("should value method return the actual value of the state as a getter", () => {
+    const { name, age } = context.value;
+
+    context.patch({ name: "Will", age: 32 });
+
+    const { name: updateName, age: updateAge } = context.value;
+
+    expect(name).toEqual("John");
+    expect(age).toEqual(20);
+
+    expect(updateName).toEqual("Will");
+    expect(updateAge).toEqual(32);
+  });
 });

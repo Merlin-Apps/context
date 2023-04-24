@@ -11,17 +11,13 @@ import {
 } from "rxjs";
 import {
   catchError,
-  concatMap,
   distinctUntilChanged,
-  exhaustMap,
   map,
-  mergeMap,
-  switchMap,
   take,
   tap,
 } from "rxjs/operators";
 import { logEffect } from "./proxy-logger";
-import { UUID } from "./utils";
+import { operationOb, UUID } from "./utils";
 
 export type ContextDefinition<T> = {
   initialState: T;
@@ -42,15 +38,18 @@ export type Projector<Result, T> = (s: T) => Result;
 export type PickerObj<T> = {
   [P in keyof T as `${string & P}$`]: Observable<T[P]>;
 };
+export type StateObj<T> = {
+  [P in keyof T as `${string & P}`]: T[P];
+};
 
 //`${Extract<keyof T, string>}$`
 
 //For effect function
 export type ProjectFunction<Type, Result> = (type$: Observable<Type>) => Result;
-export type ContextFactory<T> = {
+export type ContextFactory<T, Success = string> = {
   state$: Observable<T>;
+  readonly value: T;
   pick: <Result>(projector: Projector<Result, T>) => Observable<Result>;
-  event: <Result>(projector: Projector<Result, T>) => Observable<Result>;
   pluck: <K extends keyof T>(key: K) => Observable<T[K]>;
   picker: PickerObj<T>;
   update: (a: UpdateFunction<T>) => void;
@@ -72,7 +71,7 @@ export type ContextFactory<T> = {
   emitError: (e: Error) => Observable<Error>;
   clearError: () => void;
 };
-export function createContextFactory<T>(
+export function createContextFactory<T, Success = string>(
   initialState: T,
   config: ContextConfig = { autoLoading: true, log: false }
 ): ContextFactory<T> {
@@ -150,6 +149,8 @@ export function createContextFactory<T>(
   };
 
   const picker = pluckAll();
+
+  const value = () => context.value;
 
   //Update method
   const update = (updateFunction: UpdateFunction<T>): void => {
@@ -262,7 +263,7 @@ export function createContextFactory<T>(
             returnObsSubject.error(e);
             //Stop throw error propagation
             return of(e);
-          })
+          })f
         )
         .subscribe();
 
@@ -273,6 +274,7 @@ export function createContextFactory<T>(
       return returnObs$;
     };
   };
+
   //Clean the context
   const destroy = () => {
     effectSubjects.forEach((effect) => {
@@ -283,7 +285,9 @@ export function createContextFactory<T>(
   return {
     state$,
     pick,
-    event,
+    get value() {
+      return value();
+    },
     pluck: pluckContext,
     picker,
     update,
@@ -317,115 +321,63 @@ function fireEffect<H>(
   );
 }
 
-//TODO: Make cb optional, cb could be managed by user in the apiCall Observable
-function createAsyncEffect<P, H>(
-  trigger: (params: P) => {
-    apiCall: Observable<H>;
-    cb: (data: H) => void;
-    success?: string;
-    error: string;
-  },
-  operation?: "switch" | "reject" | "concat" | "merge"
-) {
-  const cb: (params: P) => {
-    apiCall: Observable<H>;
-    cb: (data: H) => void;
-    success?: string;
-    error: string;
-  } = (params: P) => trigger(params);
+// //Async effect as Promise
+// const asyncEffect = <P, Success = string>(
+//   trigger: (params: P) => Promise<Success | void>,
+//   error?: (params: P) => string,
+//   operation?: "switch" | "reject" | "concat" | "merge"
+// ) => {
+//   let cachedError: string;
+//   const cb: (params: P) => Observable<Success | void> = (params: P) => {
+//     cachedError = error ? error(params) : "";
+//     return from(trigger(params));
+//   };
 
-  const innerCb = ({
-    apiCall,
-    cb,
-    error,
-    success,
-  }: {
-    apiCall: Observable<H>;
-    cb: (data: H) => void;
-    success?: string;
-    error: string;
-  }) => this.fireEffect(apiCall, cb, { success, error });
+//   const runMessagePipe = pipe(
+//     tap((success: Success | void) => console.log("Success Msg", success)),
+//     catchError((e) => {
+//       console.log("Error Msg", cachedError);
+//       emitError(e);
+//       return of(e);
+//     })
+//   );
 
-  const projector = (triggerParams$: Observable<P>) =>
-    triggerParams$.pipe(map(cb), this.innerCbOperation(innerCb, operation));
+//   const projector = (triggerParams$: Observable<P>) =>
+//     triggerParams$.pipe(operationOb(cb, operation), runMessagePipe);
+//   return effect(projector);
+// };
 
-  return this.effect(projector);
-}
+// //TODO: Make cb optional, cb could be managed by user in the apiCall Observable
+// function createAsyncEffect<P, H>(
+//   trigger: (params: P) => {
+//     apiCall: Observable<H>;
+//     cb: (data: H) => void;
+//     success?: string;
+//     error: string;
+//   },
+//   operation?: "switch" | "reject" | "concat" | "merge"
+// ) {
+//   const cb: (params: P) => {
+//     apiCall: Observable<H>;
+//     cb: (data: H) => void;
+//     success?: string;
+//     error: string;
+//   } = (params: P) => trigger(params);
 
-function createAsyncEffectPromise<P, H>(
-  trigger: (params: P) => Promise<string | void>,
-  error?: (params: P) => string,
-  operation?: "switch" | "reject" | "concat" | "merge"
-) {
-  let cachedError: string;
-  const cb: (params: P) => Observable<string | void> = (params: P) => {
-    cachedError = error ? error(params) : "";
-    return from(trigger(params));
-  };
+//   const innerCb = ({
+//     apiCall,
+//     cb,
+//     error,
+//     success,
+//   }: {
+//     apiCall: Observable<H>;
+//     cb: (data: H) => void;
+//     success?: string;
+//     error: string;
+//   }) => this.fireEffect(apiCall, cb, { success, error });
 
-  const runMessagePipe = pipe(
-    tap((success: string | void) => console.log("Success Msg", success)),
-    catchError((e) => {
-      console.log("Error Msg", cachedError);
-      this.emitError(e);
-      return of(e);
-    })
-  );
+//   const projector = (triggerParams$: Observable<P>) =>
+//     triggerParams$.pipe(map(cb), this.innerCbOperation(innerCb, operation));
 
-  const projector = (triggerParams$: Observable<P>) =>
-    triggerParams$.pipe(this.operationOb(cb, operation), runMessagePipe);
-  return this.effect(projector);
-}
-
-function operationOb<P>(
-  cb: (params: P) => Observable<string | void>,
-  operation?: "switch" | "reject" | "concat" | "merge"
-) {
-  switch (operation) {
-    case "switch": {
-      return switchMap(cb);
-    }
-    case "reject": {
-      return exhaustMap(cb);
-    }
-    case "concat": {
-      return concatMap(cb);
-    }
-    case "merge": {
-      return mergeMap(cb);
-    }
-    //Fallback always to switchMap
-    default: {
-      return switchMap(cb);
-    }
-  }
-}
-
-function innerCbOperation<H>(
-  cb: (params: {
-    apiCall: Observable<H>;
-    cb: (data: H) => void;
-    success?: string;
-    error: string;
-  }) => Observable<H>,
-  operation?: "switch" | "reject" | "concat" | "merge"
-) {
-  switch (operation) {
-    case "switch": {
-      return switchMap(cb);
-    }
-    case "reject": {
-      return exhaustMap(cb);
-    }
-    case "concat": {
-      return concatMap(cb);
-    }
-    case "merge": {
-      return mergeMap(cb);
-    }
-    //Fallback always to switchMap
-    default: {
-      return switchMap(cb);
-    }
-  }
-}
+//   return this.effect(projector);
+// }
