@@ -18,6 +18,7 @@ import {
 } from "rxjs/operators";
 import { logEffect } from "./proxy-logger";
 import { operationOb, UUID } from "./utils";
+import { createErrors } from "./errors";
 
 export type ContextDefinition<T> = {
   initialState: T;
@@ -53,10 +54,6 @@ export type ContextFactory<T, Success = string> = {
   pluck: <K extends keyof T>(key: K) => Observable<T[K]>;
   picker: PickerObj<T>;
   update: (a: UpdateFunction<T>) => void;
-  /**
-   * @deprecated name changed, use patch instead. Will be removed in future versions
-   */
-  updateP: <K extends Partial<T>>(partialState: K) => void;
   patch: <K extends Partial<T>>(partialState: K) => void;
   effect: <Type, Result, Rest = Result extends Observable<infer A> ? A : never>(
     effect: ProjectFunction<Type, Result>
@@ -67,9 +64,10 @@ export type ContextFactory<T, Success = string> = {
   ) => Observable<Rest>;
   destroy: () => void;
   loading$: Observable<boolean>;
-  error$: Observable<Error | null>;
-  emitError: (e: Error) => Observable<Error>;
-  clearError: () => void;
+  errors$: Observable<(Error | null)[]>;
+  errors: (Error | null)[];
+  clearError: (index: number) => void;
+  clearAllErrors: () => void;
 };
 export function createContextFactory<T, Success = string>(
   initialState: T,
@@ -96,20 +94,15 @@ export function createContextFactory<T, Success = string>(
   const loadingSub = loadingLog$.subscribe();
   subscriptions.push(loadingSub);
   //Manage auto-error catch for effects
-  const error = new BehaviorSubject<Error | null>(null);
-  const error$ = error.asObservable();
-  const sendError = (e: Error): void => {
-    error.next(e);
-  };
-  //Utilities for catchError on flattening maps
-  const emitError = (e: Error): Observable<Error> => {
-    sendError(e);
-    return of(e);
-  };
+  const {
+    errors$,
+    errorsValue,
+    registerError,
+    setError,
+    clearError,
+    clearAllErrors,
+  } = createErrors();
 
-  const clearError = () => {
-    error.next(null);
-  };
   //Log initial state
   if (enableLog) console.log("%cInit Context", style, initialState);
   /*** MAIN METHODS ***/
@@ -185,7 +178,6 @@ export function createContextFactory<T, Success = string>(
 
   const patch = <K extends Partial<T>>(partialState: K) =>
     update(patchImpl(partialState));
-  const updateP = patch;
   //Effect method -
   /*** Result is the observable with the ending value of the observable created in the effect ***/
   /*** Rest is the type value of that observable ***/
@@ -215,10 +207,15 @@ export function createContextFactory<T, Success = string>(
 
     const effectId = UUID();
     registerLoading(effectId);
+    const efffectIndex = registerError();
 
     const finalizeEffect = () => {
-      if (autoLoading) stopLoading(effectId);
-      if (enableLog) console.groupEnd();
+      if (autoLoading) {
+        stopLoading(effectId);
+      }
+      if (enableLog) {
+        console.groupEnd();
+      }
     };
 
     //TODO: Not sure if is neccessary (for destroy, complete effects)
@@ -254,12 +251,14 @@ export function createContextFactory<T, Success = string>(
           take(1),
           tap((value) => {
             finalizeEffect();
+            setError(efffectIndex, null);
             effectSuccessSubject.next(value);
             returnObsSubject.next(value);
           }),
           catchError((e) => {
             finalizeEffect();
             effectErrorSubject.next(e);
+            setError(efffectIndex, e);
             returnObsSubject.error(e);
             //Stop throw error propagation
             return of(e);
@@ -291,14 +290,16 @@ export function createContextFactory<T, Success = string>(
     pluck: pluckContext,
     picker,
     update,
-    updateP,
     patch,
     effect,
     destroy,
     loading$,
-    error$,
-    emitError,
+    errors$,
+    get errors() {
+      return errorsValue();
+    },
     clearError,
+    clearAllErrors,
   };
 }
 

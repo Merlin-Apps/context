@@ -254,4 +254,148 @@ describe("ContextFactory", () => {
     expect(updateName).toEqual("Will");
     expect(updateAge).toEqual(32);
   });
+
+  it("should have an errors$ observable that contains arrays of the different effects", () => {
+    const errors$ = context.errors$;
+
+    context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(switchMap((a) => of(a + " effect 1")))
+    );
+    context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(switchMap((a) => of(a + " effect 2")))
+    );
+
+    const errors = subscribeSpyTo(errors$);
+
+    expect(errors.getFirstValue()).toStrictEqual([null, null]);
+    expect(errors.getFirstValue().length).toBe(2);
+  });
+
+  it("should errors$ contains the corresponding error in the index of the array", () => {
+    const errors$ = context.errors$;
+
+    const effect1ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 1")))
+      )
+    );
+
+    const effect2ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(switchMap(() => of("No error effect")))
+    );
+
+    const effect3ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 2")))
+      )
+    );
+
+    effect3ToCall();
+    effect1ToCall();
+    effect2ToCall();
+
+    const errors = subscribeSpyTo(errors$);
+
+    const errorsResult = errors.getLastValue() ?? [];
+    expect(errorsResult[0]?.message).toBe("Error for effect 1");
+    expect(errorsResult[1]).toBe(null);
+    expect(errorsResult[2]?.message).toBe("Error for effect 2");
+  });
+
+  it("should an effect called twice first with error and the with no error, the errors$ should contain null for that effect", () => {
+    const errors$ = context.errors$;
+
+    const effect1ToCall = context.effect((trigger$: Observable<boolean>) =>
+      trigger$.pipe(
+        switchMap((emitError) => {
+          if (!emitError) {
+            return of("Effect callled");
+          } else {
+            return throwError(new Error("Error for effect 1"));
+          }
+        })
+      )
+    );
+
+    effect1ToCall(true);
+    effect1ToCall(false);
+
+    const errors = subscribeSpyTo(errors$);
+
+    const errorsResult = errors.getLastValue() ?? [];
+    expect(errorsResult[0]).toBe(null);
+  });
+
+  it("should have a method clearError that receives an index and clear set that error to null in errors$ array", () => {
+    const errors$ = context.errors$;
+    const clearError = context.clearError;
+
+    const effect1ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 1")))
+      )
+    );
+
+    const effect2ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 2")))
+      )
+    );
+
+    effect1ToCall();
+    effect2ToCall();
+    clearError(1);
+
+    const errors = subscribeSpyTo(errors$);
+    const errorsResult = errors.getLastValue() ?? [];
+    expect(errorsResult[0]?.message).toBe("Error for effect 1");
+    expect(errorsResult[1]).toBe(null);
+  });
+
+  it("should have a method clearAllErrors method that set to null all the elements of errors$ array", () => {
+    const errors$ = context.errors$;
+    const clearErrors = context.clearAllErrors;
+
+    const effect1ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 1")))
+      )
+    );
+
+    const effect2ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 2")))
+      )
+    );
+
+    effect1ToCall();
+    effect2ToCall();
+    clearErrors();
+
+    const errors = subscribeSpyTo(errors$);
+    const errorsResult = errors.getLastValue() ?? [];
+    expect(errorsResult[0]).toBe(null);
+    expect(errorsResult[1]).toBe(null);
+  });
+
+  it("should have a getter method errors that returns the errors array", () => {
+    const effect1ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 1")))
+      )
+    );
+
+    const effect2ToCall = context.effect((trigger$: Observable<void>) =>
+      trigger$.pipe(
+        switchMap(() => throwError(new Error("Error for effect 2")))
+      )
+    );
+
+    effect1ToCall();
+    effect2ToCall();
+
+    const errorsResult = context.errors;
+    expect(errorsResult[0]?.message).toBe("Error for effect 1");
+    expect(errorsResult[1]?.message).toBe("Error for effect 2");
+  });
 });
