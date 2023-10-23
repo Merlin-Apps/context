@@ -1,5 +1,15 @@
-import { isObservable, Observable, of, throwError } from "rxjs";
-import { delay, switchMap, take, takeUntil } from "rxjs/operators";
+import { isObservable, Observable, of, Subject, throwError, timer } from "rxjs";
+import {
+  catchError,
+  concatMap,
+  delay,
+  delayWhen,
+  exhaustMap,
+  finalize,
+  mergeMap,
+  switchMap,
+  tap,
+} from "rxjs/operators";
 import {
   afterEach,
   beforeEach,
@@ -8,6 +18,7 @@ import {
   it,
   vitest,
   vi,
+  test,
 } from "vitest";
 import { ContextFactory, createContextFactory } from "../context";
 
@@ -118,7 +129,7 @@ describe("ContextFactory", () => {
     expect(returnFunc).not.toBeCalled();
   });
 
-  it("should the effect on value -> error -> value dont stop the effect ", () => {
+  test("should the effect on value -> error -> value dont break/stop/shutdoewn the effect", () => {
     const effectSuccess = context.effect((trigger$: Observable<string>) =>
       trigger$.pipe(
         switchMap((a) => {
@@ -132,18 +143,18 @@ describe("ContextFactory", () => {
       subscribeSpyTo(effectSuccess(value), {
         expectErrors: true,
       });
-
-    const effectOneSpy = effectsSpyFactory("One");
-    const effectErrorSpy = effectsSpyFactory("Error");
-    const effectTwoSpy = effectsSpyFactory("Two");
-
-    effectOneSpy.unsubscribe();
-    effectErrorSpy.unsubscribe();
-    effectTwoSpy.unsubscribe();
+    const results$ = effectSuccess("One");
+    const effectOneSpy = subscribeSpyTo(results$, { expectErrors: true });
+    effectSuccess("Error");
+    const effectTwoSpy = subscribeSpyTo(effectSuccess("Two"), {
+      expectErrors: true,
+    });
 
     expect(effectOneSpy.getFirstValue()).toBe("One effect");
-    expect(effectTwoSpy.getFirstValue()).toBe("Two effect");
-    expect(effectErrorSpy.receivedError()).toBe(true);
+    expect(effectOneSpy.receivedError()).toBe(true);
+    expect(effectTwoSpy.getLastValue()).toBe("Two effect");
+
+    effectOneSpy.unsubscribe();
     // expect(effectErrorSpy.getError()).toBe(effectError);
   });
 
@@ -326,7 +337,7 @@ describe("ContextFactory", () => {
     expect(errorsResult[0]).toBe(null);
   });
 
-  it("should have a method clearError that receives an index and clear set that error to null in errors$ array", () => {
+  test("should have a method clearError that receives an index and clear set that error to null in errors$ array", () => {
     const errors$ = context.errors$;
     const clearError = context.clearError;
 
@@ -352,7 +363,7 @@ describe("ContextFactory", () => {
     expect(errorsResult[1]).toBe(null);
   });
 
-  it("should have a method clearAllErrors method that set to null all the elements of errors$ array", () => {
+  test("should have a method clearAllErrors method that set to null all the elements of errors$ array", () => {
     const errors$ = context.errors$;
     const clearErrors = context.clearAllErrors;
 
@@ -378,7 +389,7 @@ describe("ContextFactory", () => {
     expect(errorsResult[1]).toBe(null);
   });
 
-  it("should have a getter method errors that returns the errors array", () => {
+  test("should have a getter method errors that returns the errors array", () => {
     const effect1ToCall = context.effect((trigger$: Observable<void>) =>
       trigger$.pipe(
         switchMap(() => throwError(new Error("Error for effect 1")))
@@ -398,4 +409,551 @@ describe("ContextFactory", () => {
     expect(errorsResult[0]?.message).toBe("Error for effect 1");
     expect(errorsResult[1]?.message).toBe("Error for effect 2");
   });
+
+  it("should have a asyncEffect method that receives trigger method", () => {
+    vi.useFakeTimers();
+    const simulateApiCall: (
+      p: string
+    ) => Observable<{ name: string; age: number }> = (param1: string) =>
+      of({ name: param1, age: 47 }).pipe(delay(100));
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+    });
+
+    effectToCall.run("Test Name");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+
+    vi.runAllTimers();
+    expect(name.getLastValue()).toEqual("Test Name");
+    expect(age.getLastValue()).toEqual(47);
+  });
+
+  test("should run the effect correclty", () => {
+    const simulateApiCall = (param1: string) => of({ name: param1, age: 22 });
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    effectToCall("Test Name 1");
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+  });
+
+  test("should run the effect correclty and run the succes function on success", () => {
+    const simulateApiCall = (param1: string) => of({ name: param1, age: 22 });
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    const returnFunc = vitest.fn((v) => v);
+
+    effectToCall("Test Name 1", returnFunc);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+    expect(returnFunc).toBeCalledTimes(1);
+    expect(returnFunc).toHaveBeenCalledWith({ name: "Test Name 1", age: 22 });
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+  });
+
+  test("should run the effect and catch the error", () => {
+    const e = new Error("Error on effect");
+    const simulateApiCall = (param1: string) => throwError(e);
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(switchMap((param) => simulateApiCall(param)))
+    );
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+    const errors = subscribeSpyTo(context.errors$);
+
+    effectToCall("Test Name 1");
+
+    expect(context.errors.length).toBe(1);
+    expect(context.errors[0]?.message).toBe("Error on effect");
+    expect(errors.getFirstValue()).toEqual([null]);
+    expect(errors.getLastValue()).toEqual([e]);
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+  });
+
+  test("should run the effect and catch the error and run the error function", () => {
+    const e = new Error("Error on effect");
+    const simulateApiCall = (param1: string) => throwError(e);
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(switchMap((param) => simulateApiCall(param)))
+    );
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    const returnFunc = vitest.fn((v) => v);
+    const returnErrFunc = vitest.fn((v) => v);
+
+    effectToCall("Test Name 1", returnFunc, returnErrFunc);
+
+    expect(context.errors.length).toBe(1);
+    expect(context.errors[0]?.message).toBe("Error on effect");
+    expect(returnErrFunc).toHaveBeenCalledOnce();
+    expect(returnErrFunc).toBeCalledWith(e);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+  });
+
+  test("should the effect map switch two consecutives calls on the same effect with switchMap", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Cancel 300 effect -> Finish 100 efect
+    effectToCall("Test Name 1");
+    vi.advanceTimersByTime(50);
+    effectToCall("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Finished effect Test Name 2
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(300); //550 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should the effect reject two consecutives calls on the same effect with exhaustMap", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        exhaustMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Cancel 150 effect -> Finish 300 effect
+    effectToCall("Test Name 1");
+    vi.advanceTimersByTime(50);
+    effectToCall("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Same a initial state because should be canceled the Test Name 2 effect
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(300); //550 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should effect with two consecutives calls be called one and then the other using concatMap", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        concatMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Finish 300 effect/Start effect 150 -> Finish 150 effect
+    effectToCall("Test Name 1");
+    vi.advanceTimersByTime(50); //50 Total
+    effectToCall("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Same a initial state because Test Name 1 effect is running
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(50); //300 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(150); //450 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should effect with two consecutives calls be called in parallel other using mergeMap", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        mergeMap((param) =>
+          simulateApiCall(param).pipe(
+            tap((data) => context.patch({ name: data.name, age: data.age }))
+          )
+        )
+      )
+    );
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Finish 300 effect/Start effect 150 -> Finish 150 effect
+    effectToCall("Test Name 1");
+    vi.advanceTimersByTime(50); //50 Total
+    effectToCall("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(100); //200 Total - Same a initial state because Test Name 1 effect is running
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(100); //300 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should the asyncEffect map switch two consecutives calls on the same effect", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+      operation: "switch",
+    });
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Cancel 300 effect -> Finish 100 efect
+    effectToCall.run("Test Name 1");
+    vi.advanceTimersByTime(50);
+    effectToCall.run("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Finished effect Test Name 2
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(300); //550 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should the asyncEffect map switch two consecutives calls on the same effect", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+      operation: "reject",
+    });
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Cancel 150 effect -> Finish 300 effect
+    effectToCall.run("Test Name 1");
+    vi.advanceTimersByTime(50);
+    effectToCall.run("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Same a initial state because should be canceled the Test Name 2 effect
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(300); //550 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should the asyncEffect map switch two consecutives calls on the same effect", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+      operation: "concat",
+    });
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Finish 300 effect/Start effect 150 -> Finish 150 effect
+    effectToCall.run("Test Name 1");
+    vi.advanceTimersByTime(50); //50 Total
+    effectToCall.run("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(150); //250 Total - Same a initial state because Test Name 1 effect is running
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(50); //300 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(150); //450 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test.skip("should the asyncEffect map switch two consecutives calls on the same effect", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) =>
+      of({ name: param1, age: 22 }).pipe(
+        delayWhen((value) => {
+          if (value.name === "Test Name 1") {
+            return timer(300);
+          } else {
+            return timer(150);
+          }
+        })
+      );
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+      operation: "merge",
+    });
+
+    //Call 300 effect -> Effect running -> Call 150 effect
+    // -> Finish 300 effect/Start effect 150 -> Finish 150 effect
+    effectToCall.run("Test Name 1");
+    vi.advanceTimersByTime(50); //50 Total
+    effectToCall.run("Test Name 2");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    vi.advanceTimersByTime(50); //100 Total
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+
+    vi.advanceTimersByTime(100); //200 Total - Same a initial state because Test Name 1 effect is running
+    expect(name.getLastValue()).toEqual("Test Name 2");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.advanceTimersByTime(100); //300 Total - All finished effect Test Name 1 should been cancel
+    expect(name.getLastValue()).toEqual("Test Name 1");
+    expect(age.getLastValue()).toEqual(22);
+
+    vi.runAllTimers();
+  });
+
+  test("should the asyncEffect on error call should call error fn and get an error in errors picker", () => {
+    const error = new Error("Error on api");
+
+    const simulateApiCall = (param1: string) => throwError(error);
+
+    const spyOnErrorFn = vitest.fn((e: Error) => {});
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      error: spyOnErrorFn,
+    });
+
+    effectToCall.run("Test Name 1");
+
+    const { name$, age$ } = context.picker;
+    const errors = context.errors;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+    expect(errors.at(0)?.message).toBe("Error on api");
+    expect(spyOnErrorFn).toBeCalledTimes(1);
+    expect(spyOnErrorFn).toBeCalledWith(error);
+  });
+
+  //TODO: Test case when using mergeMap the errors array creates [null, Error]
 });

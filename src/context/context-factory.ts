@@ -8,11 +8,17 @@ import {
   ReplaySubject,
   Subject,
   Subscription,
+  throwError,
 } from "rxjs";
 import {
   catchError,
+  concatMap,
   distinctUntilChanged,
+  exhaustMap,
   map,
+  mergeMap,
+  retry,
+  switchMap,
   take,
   tap,
 } from "rxjs/operators";
@@ -43,6 +49,7 @@ export type StateObj<T> = {
   [P in keyof T as `${string & P}`]: T[P];
 };
 
+export type ReturnTriggerT<T> = Promise<T | void> | T | void;
 //`${Extract<keyof T, string>}$`
 
 //For effect function
@@ -68,6 +75,19 @@ export type ContextFactory<T, Success = string> = {
   errors: (Error | null)[];
   clearError: (index: number) => void;
   clearAllErrors: () => void;
+  asyncEffect: <ParamTypes, H>({
+    trigger,
+    success,
+    error,
+    operation,
+  }: {
+    trigger: (params: ParamTypes) => Observable<H>;
+    success?: (info: { params: ParamTypes; data: H }) => void;
+    error?: (e: Error) => void;
+    operation?: "switch" | "reject" | "concat" | "merge";
+  }) => {
+    run: (params: ParamTypes) => Observable<H>;
+  };
 };
 export function createContextFactory<T, Success = string>(
   initialState: T,
@@ -218,37 +238,13 @@ export function createContextFactory<T, Success = string>(
       }
     };
 
-    //TODO: Not sure if is neccessary (for destroy, complete effects)
-    effectSubjects.push(effectSubject);
-    //Effect method to call
-    return (
-      param: Type,
-      returnFunc?: (p: Rest) => void,
-      returnError?: (e: Error) => void
-    ): Observable<Rest> => {
-      if (enableLog) logEffect();
-      if (autoLoading) startLoading(effectId);
+    let returnObsSubject = new ReplaySubject<Rest>(1);
+    let returnObs$ = returnObsSubject.asObservable();
+    //Subscribe once to the trigger observable created by the user
 
-      const returnObsSubject = new ReplaySubject<Rest>(1);
-      const returnObs$ = returnObsSubject.asObservable();
-
-      //Run return function if created as parameter
-      if (returnFunc) {
-        effectSucess$.pipe(take(1)).subscribe((v) => {
-          returnFunc(v);
-        });
-      }
-      //Run the error function if created as parameter
-      if (returnError) {
-        effectError$.pipe(take(1)).subscribe((v) => {
-          returnError(v);
-        });
-      }
-
-      //Subscribe once to the trigger observable created by the user
-      returnFunction
+    const createReturnObs = () => {
+      const sub = returnFunction
         .pipe(
-          take(1),
           tap((value) => {
             finalizeEffect();
             setError(efffectIndex, null);
@@ -265,6 +261,42 @@ export function createContextFactory<T, Success = string>(
           })
         )
         .subscribe();
+      returnObsSubject = new ReplaySubject<Rest>(1);
+      returnObs$ = returnObsSubject.asObservable();
+      return sub;
+    };
+    //TODO: Destoy subscription
+    let returnObsSubscription = createReturnObs();
+    subscriptions.push(returnObsSubscription);
+
+    //TODO: Not sure if is neccessary (for destroy, complete effects)
+    effectSubjects.push(effectSubject);
+    //Effect method to call
+    return (
+      param: Type,
+      returnFunc?: (p: Rest) => void,
+      returnError?: (e: Error) => void
+    ): Observable<Rest> => {
+      if (returnObsSubscription.closed) {
+        returnObsSubscription = createReturnObs();
+        subscriptions.push(returnObsSubscription);
+      }
+
+      if (enableLog) logEffect();
+      if (autoLoading) startLoading(effectId);
+
+      //Run return function if created as parameter
+      if (returnFunc) {
+        effectSucess$.pipe(take(1)).subscribe((v) => {
+          returnFunc(v);
+        });
+      }
+      //Run the error function if created as parameter
+      if (returnError) {
+        effectError$.pipe(take(1)).subscribe((v) => {
+          returnError(v);
+        });
+      }
 
       //Fire the effect with the passed parameter
       effectSubject.next(param);
@@ -279,8 +311,66 @@ export function createContextFactory<T, Success = string>(
     effectSubjects.forEach((effect) => {
       effect.complete();
     });
-    subscriptions.forEach((sub) => sub.unsubscribe());
+    subscriptions.forEach((sub) => !sub.closed && sub.unsubscribe());
   };
+
+  //Type,
+  // Result,
+  // Rest = Result extends Observable<infer A> ? A : never
+  //Create effect
+  const asyncEffect = <ParamsType, H>({
+    trigger,
+    success,
+    error,
+    operation,
+  }: {
+    trigger: (params: ParamsType) => Observable<H>;
+    success?: (info: { params: ParamsType; data: H }) => void;
+    error?: (e: Error) => void;
+    operation?: "switch" | "reject" | "concat" | "merge";
+  }): {
+    run: (params: ParamsType) => Observable<H>;
+  } => {
+    const apiCallFn = (params: ParamsType) =>
+      trigger(params).pipe(
+        tap((data) => success({ params, data })),
+        catchError((e: Error) => {
+          error(e);
+          return throwError(e);
+        })
+      );
+
+    //Switch
+    let effectCreated = effect((trigger$: Observable<ParamsType>) =>
+      trigger$.pipe(switchMap(apiCallFn))
+    );
+
+    //Concat
+    if (operation === "concat") {
+      effectCreated = effect((trigger$: Observable<ParamsType>) =>
+        trigger$.pipe(concatMap(apiCallFn))
+      );
+    }
+
+    //Merge
+    if (operation === "merge") {
+      effectCreated = effect((trigger$: Observable<ParamsType>) =>
+        trigger$.pipe(mergeMap(apiCallFn))
+      );
+    }
+
+    //Reject
+    if (operation === "reject") {
+      effectCreated = effect((trigger$: Observable<ParamsType>) =>
+        trigger$.pipe(exhaustMap(apiCallFn))
+      );
+    }
+
+    return {
+      run: (params: ParamsType) => effectCreated(params),
+    };
+  };
+
   return {
     state$,
     pick,
@@ -292,6 +382,7 @@ export function createContextFactory<T, Success = string>(
     update,
     patch,
     effect,
+    asyncEffect,
     destroy,
     loading$,
     errors$,
