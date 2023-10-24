@@ -55,7 +55,7 @@ describe("ContextFactory", () => {
     expect(context.effect).toBeDefined();
   });
 
-  it("should update callback return the same properties of state that is defined in State Type", () => {
+  it("should the update method throw an Error when a new key is added that don't belongs to original state", () => {
     type State = {
       name: string;
       age: number;
@@ -129,7 +129,7 @@ describe("ContextFactory", () => {
     expect(returnFunc).not.toBeCalled();
   });
 
-  test("should the effect on value -> error -> value dont break/stop/shutdoewn the effect", () => {
+  test("should the effect on value -> error -> value dont break/stop/shutdown the effect", () => {
     const effectSuccess = context.effect((trigger$: Observable<string>) =>
       trigger$.pipe(
         switchMap((a) => {
@@ -139,10 +139,6 @@ describe("ContextFactory", () => {
       )
     );
 
-    const effectsSpyFactory = (value: string) =>
-      subscribeSpyTo(effectSuccess(value), {
-        expectErrors: true,
-      });
     const results$ = effectSuccess("One");
     const effectOneSpy = subscribeSpyTo(results$, { expectErrors: true });
     effectSuccess("Error");
@@ -408,33 +404,6 @@ describe("ContextFactory", () => {
     const errorsResult = context.errors;
     expect(errorsResult[0]?.message).toBe("Error for effect 1");
     expect(errorsResult[1]?.message).toBe("Error for effect 2");
-  });
-
-  it("should have a asyncEffect method that receives trigger method", () => {
-    vi.useFakeTimers();
-    const simulateApiCall: (
-      p: string
-    ) => Observable<{ name: string; age: number }> = (param1: string) =>
-      of({ name: param1, age: 47 }).pipe(delay(100));
-
-    const effectToCall = context.asyncEffect({
-      trigger: simulateApiCall,
-      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
-    });
-
-    effectToCall.run("Test Name");
-
-    const { name$, age$ } = context.picker;
-
-    const name = subscribeSpyTo(name$);
-    const age = subscribeSpyTo(age$);
-
-    expect(name.getFirstValue()).toEqual("John");
-    expect(age.getFirstValue()).toEqual(20);
-
-    vi.runAllTimers();
-    expect(name.getLastValue()).toEqual("Test Name");
-    expect(age.getLastValue()).toEqual(47);
   });
 
   test("should run the effect correclty", () => {
@@ -744,6 +713,33 @@ describe("ContextFactory", () => {
     vi.runAllTimers();
   });
 
+  it("should have a asyncEffect method that receives trigger method", () => {
+    vi.useFakeTimers();
+    const simulateApiCall: (
+      p: string
+    ) => Observable<{ name: string; age: number }> = (param1: string) =>
+      of({ name: param1, age: 47 }).pipe(delay(100));
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+    });
+
+    effectToCall.run("Test Name");
+
+    const { name$, age$ } = context.picker;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getFirstValue()).toEqual("John");
+    expect(age.getFirstValue()).toEqual(20);
+
+    vi.runAllTimers();
+    expect(name.getLastValue()).toEqual("Test Name");
+    expect(age.getLastValue()).toEqual(47);
+  });
+
   test("should the asyncEffect map switch two consecutives calls on the same effect", () => {
     vi.useFakeTimers();
     const simulateApiCall = (param1: string) =>
@@ -956,4 +952,55 @@ describe("ContextFactory", () => {
   });
 
   //TODO: Test case when using mergeMap the errors array creates [null, Error]
+
+  test("should have a destroy method that cleans the subscriptions used", () => {
+    const simulateApiCall = (param1: string) => of({ name: param1, age: 22 });
+    //ASYNC EFFECT -> created with asyncEffect
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+      success: ({ data }) => context.patch({ name: data.name, age: data.age }),
+    });
+
+    const spyEffect = subscribeSpyTo(effectToCall.run("Test Name 1"));
+
+    //EFFECT WITH ERROR - Effect that runs onces -> errors -> runs twice
+    const effectWithError = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((a) => {
+          if (a === "Error") return throwError(new Error("Error"));
+          return of(a + " effect");
+        })
+      )
+    );
+    const results$ = effectWithError("One");
+    const effectOneSpy = subscribeSpyTo(results$, { expectErrors: true });
+    effectWithError("Error");
+    const effectTwoSpy = subscribeSpyTo(effectWithError("Two"), {
+      expectErrors: true,
+    });
+
+    //STATE
+    const stateSpy = subscribeSpyTo(context.state$);
+    //PICK
+    const name$ = subscribeSpyTo(context.pick((state) => state.name));
+    //PICKER
+    const spyName = subscribeSpyTo(context.picker.name$);
+    //PLUCK
+    const spyNamePluck = subscribeSpyTo(context.pluck("name"));
+    //LOADING
+    const spyLoading = subscribeSpyTo(context.loading$);
+    //ERRORS
+    const spyErrors = subscribeSpyTo(context.errors$);
+
+    context.destroy();
+
+    expect(spyName.subscription.closed).toBe(true);
+    expect(spyEffect.subscription.closed).toBe(true);
+    expect(effectOneSpy.subscription.closed).toBe(true);
+    expect(effectTwoSpy.subscription.closed).toBe(true);
+    expect(stateSpy.subscription.closed).toBe(true);
+    expect(spyNamePluck.subscription.closed).toBe(true);
+    expect(spyLoading.subscription.closed).toBe(true);
+    expect(spyErrors.subscription.closed).toBe(true);
+  });
 });

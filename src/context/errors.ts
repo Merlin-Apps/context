@@ -8,6 +8,7 @@ interface CreateErrors {
   setError: (index: number, e: Error) => void;
   clearError: (index: number) => void;
   clearAllErrors: () => void;
+  destroyErrors: () => void;
 }
 
 export const createErrors = (): CreateErrors => {
@@ -45,6 +46,10 @@ export const createErrors = (): CreateErrors => {
     errors.next(clearedErrors);
   };
 
+  const destroyErrors = () => {
+    errors.complete();
+  };
+
   return {
     errors$,
     errorsValue,
@@ -53,5 +58,6 @@ export const createErrors = (): CreateErrors => {
     setError,
     clearError,
     clearAllErrors,
+    destroyErrors,
   };
 };

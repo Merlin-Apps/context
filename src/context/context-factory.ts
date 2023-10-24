@@ -106,8 +106,13 @@ export function createContextFactory<T, Success = string>(
   const context = new BehaviorSubject(initialState);
   const state$ = context.asObservable();
   //Manage auto-loading
-  const { loading$, registerLoading, startLoading, stopLoading } =
-    createLoadings();
+  const {
+    loading$,
+    registerLoading,
+    startLoading,
+    stopLoading,
+    destroyLoading,
+  } = createLoadings();
   const loadingLog$ = loading$.pipe(
     tap((value) => enableLog && console.log("%cLoading", style, value))
   );
@@ -121,6 +126,7 @@ export function createContextFactory<T, Success = string>(
     setError,
     clearError,
     clearAllErrors,
+    destroyErrors,
   } = createErrors();
 
   //Log initial state
@@ -263,14 +269,16 @@ export function createContextFactory<T, Success = string>(
         .subscribe();
       returnObsSubject = new ReplaySubject<Rest>(1);
       returnObs$ = returnObsSubject.asObservable();
+      effectSubjects.push(returnObsSubject);
       return sub;
     };
-    //TODO: Destoy subscription
     let returnObsSubscription = createReturnObs();
     subscriptions.push(returnObsSubscription);
 
-    //TODO: Not sure if is neccessary (for destroy, complete effects)
     effectSubjects.push(effectSubject);
+    effectSubjects.push(effectSuccessSubject);
+    effectSubjects.push(effectErrorSubject);
+    effectSubjects.push(returnObsSubject);
     //Effect method to call
     return (
       param: Type,
@@ -312,6 +320,8 @@ export function createContextFactory<T, Success = string>(
       effect.complete();
     });
     subscriptions.forEach((sub) => !sub.closed && sub.unsubscribe());
+    destroyLoading();
+    destroyErrors();
   };
 
   //Type,
@@ -370,6 +380,8 @@ export function createContextFactory<T, Success = string>(
       run: (params: ParamsType) => effectCreated(params),
     };
   };
+
+  effectSubjects.push(context);
 
   return {
     state$,

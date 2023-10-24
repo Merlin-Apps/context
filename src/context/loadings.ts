@@ -7,6 +7,7 @@ interface CreateLoading {
   registerLoading: (id: string) => void;
   stopLoading: (id: string) => void;
   startLoading: (id: string) => void;
+  destroyLoading: () => void;
 }
 
 export const createLoadings = (): CreateLoading => {
@@ -28,5 +29,15 @@ export const createLoadings = (): CreateLoading => {
     loadings.next({ ...loadings.value, [id]: true });
   };
 
-  return { loading$, registerLoading, stopLoading, startLoading };
+  const destroyLoading = () => {
+    loadings.complete();
+  };
+
+  return {
+    loading$,
+    registerLoading,
+    stopLoading,
+    startLoading,
+    destroyLoading,
+  };
 };
