@@ -1,11 +1,11 @@
 {
   "name": "merlinshut-context",
-  "version": "0.2.0",
+  "version": "1.0.1",
   "description": "Context State Management - Service with a Subject context",
   "main": "index.ts",
   "scripts": {
     "test": "vitest",
-    "compile": "rm -rf dist/lib && tsc && tsc --build tsconfig.es5.json"
+    "compile": "rm -rf dist/lib && tsc && tsc --build tsconfig.json"
   },
   "repository": {
     "type": "git",

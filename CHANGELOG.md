@@ -1,3 +1,14 @@
+# Changes in 1.0.0
+
+- [#7](https://github.com/Merlin-Apps/context/issues/7) - Access the actual value of the state.
+- [#6](https://github.com/Merlin-Apps/context/issues/6) - New method called asyncEffect to easily create an effect without using rxjs.
+- [#5](https://github.com/Merlin-Apps/context/issues/5) - Improved the effects that correctly calls success and error callbacks and not break the effect subscription.
+- [#4](https://github.com/Merlin-Apps/context/issues/4) - Improved loadings and errors system.
+- [#3](https://github.com/Merlin-Apps/context/issues/3) - Improved usage of state and picker methods
+
+- [#1](https://github.com/Merlin-Apps/context/issues/1) - Returns functions on effect don't return the error as a value.
+- [#2](https://github.com/Merlin-Apps/context/issues/2) - Updated now throws error when passed attributes that not exists in state. This is produces because of [Type compatibilty](https://www.typescriptlang.org/docs/handbook/type-compatibility.html#starting-out) in typescript, was needed to check the attributes types.
+
 # Changes in 0.2.0
 
 Released 09/05/2022

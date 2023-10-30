@@ -206,19 +206,6 @@ Sometimes is needed to clear the error, this error set the in the Error[] in an 
 
 Works as clearError but cleans all the Error[].
 
-```
-// Use context methods to interact with your state
-context.pick((state) => state.count).subscribe((count) => console.log('Count:', count));
-
-context.update((state) => ({ ...state, count: 1 }));
-
-context.asyncEffect({
-  trigger: (params) => /* Your asynchronous operation */,
-  success: (info) => /* Handle success */,
-  error: (e) => /* Handle error */,
-}).run(/* Parameters */);
-```
-
 ## API Documentation
 
 - `state$`: An observable to observe the current state.
