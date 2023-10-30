@@ -83,10 +83,16 @@ export type ContextFactory<T, Success = string> = {
   }: {
     trigger: (params: ParamTypes) => Observable<H>;
     success?: (info: { params: ParamTypes; data: H }) => void;
-    error?: (e: Error) => void;
+    error?: (info: { e: Error; params: ParamTypes }) => void;
     operation?: "switch" | "reject" | "concat" | "merge";
   }) => {
-    run: (params: ParamTypes) => Observable<H>;
+    run: (
+      params: ParamTypes,
+      functions?: {
+        onSuccess?: (p: H) => void;
+        onError?: (e: Error) => void;
+      }
+    ) => Observable<H>;
   };
 };
 export function createContextFactory<T, Success = string>(
@@ -336,16 +342,28 @@ export function createContextFactory<T, Success = string>(
   }: {
     trigger: (params: ParamsType) => Observable<H>;
     success?: (info: { params: ParamsType; data: H }) => void;
-    error?: (e: Error) => void;
+    error?: (info: { e: Error; params: ParamsType }) => void;
     operation?: "switch" | "reject" | "concat" | "merge";
   }): {
-    run: (params: ParamsType) => Observable<H>;
+    run: (
+      params: ParamsType,
+      functions?: {
+        onSuccess?: (p: H) => void;
+        onError?: (e: Error) => void;
+      }
+    ) => Observable<H>;
   } => {
     const apiCallFn = (params: ParamsType) =>
       trigger(params).pipe(
-        tap((data) => success({ params, data })),
+        tap((data) => {
+          if (success) {
+            success({ params, data });
+          }
+        }),
         catchError((e: Error) => {
-          error(e);
+          if (error) {
+            error({ e, params });
+          }
           return throwError(e);
         })
       );
@@ -377,7 +395,14 @@ export function createContextFactory<T, Success = string>(
     }
 
     return {
-      run: (params: ParamsType) => effectCreated(params),
+      run: (params: ParamsType, functions) => {
+        const { onSuccess, onError } = functions ?? {
+          onSuccess: () => {},
+          onError: () => {},
+        };
+
+        return effectCreated(params, onSuccess, onError);
+      },
     };
   };
 

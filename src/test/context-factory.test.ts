@@ -879,7 +879,7 @@ describe("ContextFactory", () => {
     vi.runAllTimers();
   });
 
-  test.skip("should the asyncEffect map switch two consecutives calls on the same effect", () => {
+  test("should the asyncEffect map switch two consecutives calls on the same effect", () => {
     vi.useFakeTimers();
     const simulateApiCall = (param1: string) =>
       of({ name: param1, age: 22 }).pipe(
@@ -929,7 +929,7 @@ describe("ContextFactory", () => {
 
     const simulateApiCall = (param1: string) => throwError(error);
 
-    const spyOnErrorFn = vitest.fn((e: Error) => {});
+    const spyOnErrorFn = vitest.fn(({ e: Error, params: string }) => {});
 
     const effectToCall = context.asyncEffect({
       trigger: simulateApiCall,
@@ -948,7 +948,7 @@ describe("ContextFactory", () => {
     expect(age.getLastValue()).toEqual(20);
     expect(errors.at(0)?.message).toBe("Error on api");
     expect(spyOnErrorFn).toBeCalledTimes(1);
-    expect(spyOnErrorFn).toBeCalledWith(error);
+    expect(spyOnErrorFn).toBeCalledWith({ e: error, params: "Test Name 1" });
   });
 
   //TODO: Test case when using mergeMap the errors array creates [null, Error]
@@ -1002,5 +1002,49 @@ describe("ContextFactory", () => {
     expect(spyNamePluck.subscription.closed).toBe(true);
     expect(spyLoading.subscription.closed).toBe(true);
     expect(spyErrors.subscription.closed).toBe(true);
+  });
+
+  test("should the asyncEffect on error call the onSucess option function when firing the effect", () => {
+    const data = { name: "Name", age: 96 };
+    const simulateApiCall = (param1: string) => of(data);
+
+    const spyOnSuccessFn = vitest.fn(
+      (data: { name: string; age: number }) => {}
+    );
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+    });
+
+    effectToCall.run("Test Name 1", { onSuccess: spyOnSuccessFn });
+
+    expect(spyOnSuccessFn).toBeCalledTimes(1);
+    expect(spyOnSuccessFn).toBeCalledWith(data);
+  });
+
+  test("should the asyncEffect on error call the onError option function when firing the effect", () => {
+    const error = new Error("Error on api");
+
+    const simulateApiCall = (param1: string) => throwError(error);
+
+    const spyOnErrorFn = vitest.fn((e: Error) => {});
+
+    const effectToCall = context.asyncEffect({
+      trigger: simulateApiCall,
+    });
+
+    effectToCall.run("Test Name 1", { onError: spyOnErrorFn });
+
+    const { name$, age$ } = context.picker;
+    const errors = context.errors;
+
+    const name = subscribeSpyTo(name$);
+    const age = subscribeSpyTo(age$);
+
+    expect(name.getLastValue()).toEqual("John");
+    expect(age.getLastValue()).toEqual(20);
+    expect(errors.at(0)?.message).toBe("Error on api");
+    expect(spyOnErrorFn).toBeCalledTimes(1);
+    expect(spyOnErrorFn).toBeCalledWith(error);
   });
 });
