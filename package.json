@@ -5,7 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "test": "vitest",
-    "compile": "rm -rf dist/lib && tsc && tsc --build tsconfig.json"
+    "compile": "rm -rf dist/lib && tsc && tsc --build tsconfig.es5.json"
   },
   "repository": {
     "type": "git",

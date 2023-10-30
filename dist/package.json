@@ -1,6 +1,6 @@
 {
   "name": "@merlinshut/context",
-  "version": "0.2.0",
+  "version": "1.0.1",
   "description": "Context Managment for wizards",
   "main": "lib/es5/index.js",
   "module": "lib/es6/index.js",
