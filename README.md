@@ -254,6 +254,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Merlin's Apps Context Manager** is developed and maintained by [Your Name].
+**Merlin's Apps Context Manager** is developed and maintained by Cesar D. Smerling - [LinkedIn](https://www.linkedin.com/in/c%C3%A9sar-daniel-smerling-26484943/)
 
 Enjoy using Merlin's Apps Context Manager for efficient state management in your TypeScript projects!
