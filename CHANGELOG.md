@@ -90,4 +90,4 @@ Bug fixing minor release.
 - Updated vitest dev dependency to latest to shutdown the git hub security bot
 - [Bug Fix #8](https://github.com/Merlin-Apps/context/issues/8) - Resolved 
 
-[npm - @merlinshut/context@1.0.1](https://www.npmjs.com/package/@merlinshut/context/v/1.0.2)
+[npm - @merlinshut/context@1.0.2](https://www.npmjs.com/package/@merlinshut/context/v/1.0.2)
