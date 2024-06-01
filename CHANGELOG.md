@@ -61,3 +61,29 @@ First publication of context used in test projects at Merlin's Hut
 - state: The current state of the context
 - destroy: A method that must be called whenever you need to clean all subcritions.
 - startLoading, stopLoading: methods to start and stop to loading
+
+# Changes in 1.0.1
+
+Released 30/10/2023
+First release stable version of context
+
+
+### Includes
+
+- **Observable State**: Easily manage and observe the state of your application using RxJs observables.
+- **Auto-Loading**: Enable auto-loading for effects to simplify asynchronous operations.
+- **Logging**: Enable logging for development mode to help with debugging.
+- **Error Handling**: Automatically catch and manage errors for your effects.
+- **Flexible Pickers**: Pick and observe specific parts of your state using pickers.
+- **Update and Patch**: Modify your state with update and patch functions.
+- **Clean and Destroy**: Properly clean up and destroy your context when it's no longer needed.
+- **Async Effects**: Create and run asynchronous effects with success and error handling.
+- **Multiple Operation Modes**: Choose from "switch," "reject," "concat," or "merge" for effect operations to manage racing conditions.
+
+
+# Changes in 1.0.2
+
+- Updated vitest dev dependency to latest to shutdown the git hub security bot
+- 
+
+

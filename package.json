@@ -1,6 +1,6 @@
 {
   "name": "merlinshut-context",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Context State Management - Service with a Subject context",
   "main": "index.ts",
   "scripts": {
@@ -27,11 +27,11 @@
   },
   "homepage": "https://github.com/Merlin-Apps/context#readme",
   "devDependencies": {
-    "@hirez_io/observer-spy": "^2.2.0",
-    "typescript": "4.1.5",
-    "vitest": "^0.34.6"
+    "@hirez_io/observer-spy": "2.2.0",
+    "typescript": "5.4.5",
+    "vitest": "1.6.0"
   },
   "dependencies": {
-    "rxjs": "^6.6.7"
+    "rxjs": "6.6.7"
   }
 }
