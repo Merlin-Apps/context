@@ -5,7 +5,8 @@
     "lib": ["ES2023", "DOM"],
     "declaration": true,
     "outDir": "./dist/lib/es6",
-    "moduleResolution": "node",
+    "moduleResolution": "node"
   },
-  "include": ["src/**/*", "tsconfig.es5.json"],
+  "include": ["src/**/*"],
+  "exclude": ["src/test/**/*"]
 }
