@@ -1,11 +1,9 @@
-import { isObservable, Observable, of, Subject, throwError, timer } from "rxjs";
+import { Observable, of, throwError, timer } from "rxjs";
 import {
-  catchError,
   concatMap,
   delay,
   delayWhen,
   exhaustMap,
-  finalize,
   mergeMap,
   switchMap,
   tap,
@@ -16,9 +14,9 @@ import {
   describe,
   expect,
   it,
-  vitest,
-  vi,
   test,
+  vi,
+  vitest,
 } from "vitest";
 import { ContextFactory, createContextFactory } from "../context";
 
@@ -152,6 +150,25 @@ describe("ContextFactory", () => {
 
     effectOneSpy.unsubscribe();
     // expect(effectErrorSpy.getError()).toBe(effectError);
+  });
+
+  test("should the effect on error -> error -> value run the effect one ", () => {
+    const effectSuccess = context.effect((trigger$: Observable<string>) =>
+      trigger$.pipe(
+        switchMap((a) => {
+          if (a === "Error") return throwError(new Error("Error"));
+          return of(a + " effect");
+        })
+      )
+    );
+
+    const returnSpyFn = vitest.fn((v) => v);
+
+    effectSuccess("Error", returnSpyFn);
+    effectSuccess("Error", returnSpyFn);
+    effectSuccess("One", returnSpyFn);
+
+    expect(returnSpyFn).toBeCalledTimes(1);
   });
 
   it("should parallel effects with different time don't override the auto loading", () => {

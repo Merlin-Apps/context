@@ -1,7 +1,5 @@
-import { createLoadings } from "./loadings";
 import {
   BehaviorSubject,
-  from,
   Observable,
   of,
   pipe,
@@ -17,14 +15,14 @@ import {
   exhaustMap,
   map,
   mergeMap,
-  retry,
   switchMap,
   take,
   tap,
 } from "rxjs/operators";
-import { logEffect } from "./proxy-logger";
-import { operationOb, UUID } from "./utils";
 import { createErrors } from "./errors";
+import { createLoadings } from "./loadings";
+import { logEffect } from "./proxy-logger";
+import { UUID } from "./utils";
 
 export type ContextDefinition<T> = {
   initialState: T;
@@ -285,6 +283,8 @@ export function createContextFactory<T, Success = string>(
     effectSubjects.push(effectSuccessSubject);
     effectSubjects.push(effectErrorSubject);
     effectSubjects.push(returnObsSubject);
+
+    let successSubs: Subscription[] = [];
     //Effect method to call
     return (
       param: Type,
@@ -296,14 +296,18 @@ export function createContextFactory<T, Success = string>(
         subscriptions.push(returnObsSubscription);
       }
 
+      effectError$.pipe(take(1)).subscribe(() => {
+        successSubs.forEach((sub) => sub.unsubscribe());
+      });
       if (enableLog) logEffect();
       if (autoLoading) startLoading(effectId);
 
       //Run return function if created as parameter
       if (returnFunc) {
-        effectSucess$.pipe(take(1)).subscribe((v) => {
+        const successSub = effectSucess$.pipe(take(1)).subscribe((v) => {
           returnFunc(v);
         });
+        successSubs.push(successSub);
       }
       //Run the error function if created as parameter
       if (returnError) {
@@ -311,7 +315,6 @@ export function createContextFactory<T, Success = string>(
           returnError(v);
         });
       }
-
       //Fire the effect with the passed parameter
       effectSubject.next(param);
 
