@@ -83,6 +83,9 @@ First release stable version of context
 
 # Changes in 1.0.2
 
+Released 01/06/2024
+Bug fixing minor release.
+
 - Updated vitest dev dependency to latest to shutdown the git hub security bot
 - [Bug Fix #8](https://github.com/Merlin-Apps/context/issues/8) - Resolved 
 
