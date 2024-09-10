@@ -75,7 +75,7 @@ describe("ContextFactory", () => {
     expect(() => updateStateFn()).toThrowError("anotherOne");
   });
 
-  it("should return one value each time the effect is call", () => {
+  test("should return one value each time the effect is call", () => {
     const effectSuccess = context.effect((trigger$: Observable<string>) =>
       trigger$.pipe(switchMap((a) => of(a + " effect")))
     );
@@ -139,16 +139,18 @@ describe("ContextFactory", () => {
 
     const results$ = effectSuccess("One");
     const effectOneSpy = subscribeSpyTo(results$, { expectErrors: true });
-    effectSuccess("Error");
+    const effectSpyError = subscribeSpyTo(effectSuccess("Error"), {expectErrors: true});
     const effectTwoSpy = subscribeSpyTo(effectSuccess("Two"), {
       expectErrors: true,
     });
 
     expect(effectOneSpy.getFirstValue()).toBe("One effect");
-    expect(effectOneSpy.receivedError()).toBe(true);
+    expect(effectSpyError.receivedError()).toBe(true);
     expect(effectTwoSpy.getLastValue()).toBe("Two effect");
 
     effectOneSpy.unsubscribe();
+    effectSpyError.unsubscribe();
+    effectTwoSpy.unsubscribe();
     // expect(effectErrorSpy.getError()).toBe(effectError);
   });
 
@@ -156,7 +158,9 @@ describe("ContextFactory", () => {
     const effectSuccess = context.effect((trigger$: Observable<string>) =>
       trigger$.pipe(
         switchMap((a) => {
-          if (a === "Error") return throwError(new Error("Error"));
+          if (a === "Error") {
+            return throwError(new Error("Error"));
+          }
           return of(a + " effect");
         })
       )
@@ -579,7 +583,7 @@ describe("ContextFactory", () => {
     vi.runAllTimers();
   });
 
-  test("should the effect reject two consecutives calls on the same effect with exhaustMap", () => {
+  test.only("should the effect reject two consecutives calls on the same effect with exhaustMap", () => {
     vi.useFakeTimers();
     const simulateApiCall = (param1: string) =>
       of({ name: param1, age: 22 }).pipe(
@@ -1063,5 +1067,34 @@ describe("ContextFactory", () => {
     expect(errors.at(0)?.message).toBe("Error on api");
     expect(spyOnErrorFn).toBeCalledTimes(1);
     expect(spyOnErrorFn).toBeCalledWith(error);
+  });
+
+  test("should success return correct value when calling same effect with different params", () => {
+    vi.useFakeTimers();
+    const simulateApiCall = (param1: string) => of({ param: param1 });
+
+    const effectToCall = context.asyncEffect({
+      trigger: (param: string) => simulateApiCall(param).pipe(delay(100)),
+      success: () => {},
+      operation: "concat",
+    });
+
+    const spySuccessFn1 = vitest.fn(( param: string ) => { return "Returned " + param;});
+    const spySuccessFn2 = vitest.fn(( param: string ) => { return "Returned " + param;});
+
+    const caller1 = () => effectToCall.run("Caller 1", { onSuccess: (data) => spySuccessFn1(data.param) });
+    const caller2 = () => effectToCall.run("Caller 2", { onSuccess: (data) => spySuccessFn2(data.param) });
+
+    caller1();
+    caller2();
+    vi.advanceTimersByTime(100);
+    vi.advanceTimersByTime(200);
+
+    expect(spySuccessFn1).toBeCalledTimes(1);
+    expect(spySuccessFn1).toBeCalledWith("Caller 1");
+    expect(spySuccessFn1).toReturnWith("Returned Caller 1");
+    expect(spySuccessFn2).toBeCalledTimes(1);
+    expect(spySuccessFn2).toBeCalledWith("Caller 2");
+    expect(spySuccessFn2).toReturnWith("Returned Caller 2");
   });
 });

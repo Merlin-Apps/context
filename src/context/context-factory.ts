@@ -61,11 +61,11 @@ export type ContextFactory<T, Success = string> = {
   update: (a: UpdateFunction<T>) => void;
   patch: <K extends Partial<T>>(partialState: K) => void;
   effect: <Type, Result, Rest = Result extends Observable<infer A> ? A : never>(
-    effect: ProjectFunction<Type, Result>
+    effect: ProjectFunction<Type, Result>,
   ) => (
     param: Type,
     returnFunc?: (p: Rest) => void,
-    returnError?: (p: Error) => void
+    returnError?: (p: Error) => void,
   ) => Observable<Rest>;
   destroy: () => void;
   loading$: Observable<boolean>;
@@ -89,13 +89,13 @@ export type ContextFactory<T, Success = string> = {
       functions?: {
         onSuccess?: (p: H) => void;
         onError?: (e: Error) => void;
-      }
+      },
     ) => Observable<H>;
   };
 };
 export function createContextFactory<T, Success = string>(
   initialState: T,
-  config: ContextConfig = { autoLoading: true, log: false }
+  config: ContextConfig = { autoLoading: true, log: false },
 ): ContextFactory<T> {
   const { autoLoading, log } = config;
   /*** INITIALIZATION ***/
@@ -118,7 +118,7 @@ export function createContextFactory<T, Success = string>(
     destroyLoading,
   } = createLoadings();
   const loadingLog$ = loading$.pipe(
-    tap((value) => enableLog && console.log("%cLoading", style, value))
+    tap((value) => enableLog && console.log("%cLoading", style, value)),
   );
   const loadingSub = loadingLog$.subscribe();
   subscriptions.push(loadingSub);
@@ -138,12 +138,12 @@ export function createContextFactory<T, Success = string>(
   /*** MAIN METHODS ***/
   //Pick method
   const pick = <Result>(
-    mapFunction: Projector<Result, T>
+    mapFunction: Projector<Result, T>,
   ): Observable<Result> =>
     state$.pipe(map(mapFunction), distinctUntilChanged());
   //Pick method
   const event = <Result>(
-    mapFunction: Projector<Result, T>
+    mapFunction: Projector<Result, T>,
   ): Observable<Result> => state$.pipe(map(mapFunction));
 
   //Pluck method
@@ -190,7 +190,7 @@ export function createContextFactory<T, Success = string>(
     //Only check because user can add new keys, not less or repeat one (typescript checks for us)
     if (currentKeys.length !== updatedKeys.length) {
       throw new Error(
-        `The key/keys ${diffKey.toString()} is/are not defined in the State of the context.`
+        `The key/keys ${diffKey.toString()} is/are not defined in the State of the context.`,
       );
     }
 
@@ -214,27 +214,14 @@ export function createContextFactory<T, Success = string>(
   const effect = <
     Type,
     Result,
-    Rest = Result extends Observable<infer A> ? A : never
+    Rest = Result extends Observable<infer A> ? A : never,
   >(
-    trigger: ProjectFunction<Type, Result>
+    trigger: ProjectFunction<Type, Result>,
   ): ((
     param: Type,
     returnFunc?: (p: Rest) => void,
-    returnError?: (p: Error) => void
+    returnError?: (p: Error) => void,
   ) => Observable<Rest>) => {
-    //Effect create parameter observable
-    const effectSubject = new Subject<Type>();
-    const effectObservable = effectSubject.asObservable();
-    //Effect success return
-    const effectSuccessSubject = new Subject<Rest>();
-    const effectSucess$ = effectSuccessSubject.asObservable();
-    //Effect error return
-    const effectErrorSubject = new Subject<Error>();
-    const effectError$ = effectErrorSubject.asObservable();
-    //Observable returned by the created effect by the user
-    const returnValue = trigger(effectObservable);
-    const returnFunction = <Observable<Rest>>(<unknown>returnValue);
-
     const effectId = UUID();
     registerLoading(effectId);
     const efffectIndex = registerError();
@@ -248,78 +235,132 @@ export function createContextFactory<T, Success = string>(
       }
     };
 
-    let returnObsSubject = new ReplaySubject<Rest>(1);
-    let returnObs$ = returnObsSubject.asObservable();
-    //Subscribe once to the trigger observable created by the user
+    //Effect create parameter observable
+    let paramSubject = new Subject<Type>();
+    let paramObservable = paramSubject.asObservable();
+
+    let triggerCallerObs = trigger(paramObservable);
+    let triggerObs = <Observable<Rest>>(<unknown>triggerCallerObs);
+
+    const onTriggerParam = new Subject<Rest>();
+
+    const onTriggerErrorFn = catchError((e) => {
+      onTriggerParam.error(e);
+      return of(e);
+    });
+
+    let triggerSub = triggerObs
+      .pipe(onTriggerErrorFn)
+      .subscribe((value) => onTriggerParam.next(value));
+    subscriptions.push(triggerSub);
 
     const createReturnObs = () => {
-      const sub = returnFunction
+      //If error was thrown recreate the triggerObs to avoid break the effect
+
+      console.log("Trigger sub closed", triggerSub.closed);
+      if (triggerSub.closed) {
+        paramSubject = new Subject<Type>();
+        paramObservable = paramSubject.asObservable();
+        triggerCallerObs = trigger(paramObservable);
+        triggerObs = <Observable<Rest>>(<unknown>triggerCallerObs);
+        triggerSub = triggerObs
+          .pipe(onTriggerErrorFn)
+          .subscribe((value) => onTriggerParam.next(value));
+        subscriptions.push(triggerSub);
+      }
+
+      //Effect success return
+      const onSuccessSubject = new Subject<Rest>();
+      //Effect error return
+      const onErrorSubject = new Subject<Error>();
+      //Effect to return
+      const returnSubject = new ReplaySubject<Rest>(1);
+
+      const sub = triggerObs
         .pipe(
           tap((value) => {
             finalizeEffect();
             setError(efffectIndex, null);
-            effectSuccessSubject.next(value);
-            returnObsSubject.next(value);
+            onSuccessSubject.next(value);
+            returnSubject.next(value);
           }),
           catchError((e) => {
             finalizeEffect();
-            effectErrorSubject.next(e);
+            onErrorSubject.next(e);
             setError(efffectIndex, e);
-            returnObsSubject.error(e);
+            returnSubject.error(e);
             //Stop throw error propagation
             return of(e);
-          })
+          }),
         )
         .subscribe();
-      returnObsSubject = new ReplaySubject<Rest>(1);
-      returnObs$ = returnObsSubject.asObservable();
-      effectSubjects.push(returnObsSubject);
-      return sub;
+      return {
+        onSuccessSubject,
+        onErrorSubject,
+        returnSubject,
+        sub,
+      };
     };
-    let returnObsSubscription = createReturnObs();
-    subscriptions.push(returnObsSubscription);
-
-    effectSubjects.push(effectSubject);
-    effectSubjects.push(effectSuccessSubject);
-    effectSubjects.push(effectErrorSubject);
-    effectSubjects.push(returnObsSubject);
 
     let successSubs: Subscription[] = [];
+
     //Effect method to call
     return (
       param: Type,
       returnFunc?: (p: Rest) => void,
-      returnError?: (e: Error) => void
+      returnError?: (e: Error) => void,
     ): Observable<Rest> => {
-      if (returnObsSubscription.closed) {
-        returnObsSubscription = createReturnObs();
-        subscriptions.push(returnObsSubscription);
-      }
+      console.log("Run effect creation");
 
-      effectError$.pipe(take(1)).subscribe(() => {
-        successSubs.forEach((sub) => sub.unsubscribe());
-      });
-      if (enableLog) logEffect();
-      if (autoLoading) startLoading(effectId);
+      const { onSuccessSubject, onErrorSubject, returnSubject, sub } =
+        createReturnObs();
+
+      subscriptions.push(sub);
+
+      //if (sub.closed) {
+      //  sub = createReturnObs();
+      //  subscriptions.push(returnObsSubscription);
+      //}
+
+      //If error emits unsubscribe all success subscriptions
+      onErrorSubject
+        .asObservable()
+        .pipe(take(1))
+        .subscribe(() => {
+          successSubs.forEach((sub) => sub.unsubscribe());
+        });
+
+      if (enableLog) {
+        logEffect();
+      }
+      if (autoLoading) {
+        startLoading(effectId);
+      }
 
       //Run return function if created as parameter
       if (returnFunc) {
-        const successSub = effectSucess$.pipe(take(1)).subscribe((v) => {
-          returnFunc(v);
-        });
+        const successSub = onSuccessSubject
+          .asObservable()
+          .pipe(take(1))
+          .subscribe((v) => {
+            returnFunc(v);
+          });
         successSubs.push(successSub);
       }
       //Run the error function if created as parameter
       if (returnError) {
-        effectError$.pipe(take(1)).subscribe((v) => {
-          returnError(v);
-        });
+        onErrorSubject
+          .asObservable()
+          .pipe(take(1))
+          .subscribe((v) => {
+            returnError(v);
+          });
       }
       //Fire the effect with the passed parameter
-      effectSubject.next(param);
+      paramSubject.next(param);
 
       //Return the observable to use it, if needed.
-      return returnObs$;
+      return returnSubject.asObservable();
     };
   };
 
@@ -353,7 +394,7 @@ export function createContextFactory<T, Success = string>(
       functions?: {
         onSuccess?: (p: H) => void;
         onError?: (e: Error) => void;
-      }
+      },
     ) => Observable<H>;
   } => {
     const apiCallFn = (params: ParamsType) =>
@@ -368,32 +409,32 @@ export function createContextFactory<T, Success = string>(
             error({ e, params });
           }
           return throwError(e);
-        })
+        }),
       );
 
     //Switch
     let effectCreated = effect((trigger$: Observable<ParamsType>) =>
-      trigger$.pipe(switchMap(apiCallFn))
+      trigger$.pipe(switchMap(apiCallFn)),
     );
 
     //Concat
     if (operation === "concat") {
       effectCreated = effect((trigger$: Observable<ParamsType>) =>
-        trigger$.pipe(concatMap(apiCallFn))
+        trigger$.pipe(concatMap(apiCallFn)),
       );
     }
 
     //Merge
     if (operation === "merge") {
       effectCreated = effect((trigger$: Observable<ParamsType>) =>
-        trigger$.pipe(mergeMap(apiCallFn))
+        trigger$.pipe(mergeMap(apiCallFn)),
       );
     }
 
     //Reject
     if (operation === "reject") {
       effectCreated = effect((trigger$: Observable<ParamsType>) =>
-        trigger$.pipe(exhaustMap(apiCallFn))
+        trigger$.pipe(exhaustMap(apiCallFn)),
       );
     }
 
@@ -437,19 +478,19 @@ export function createContextFactory<T, Success = string>(
 function fireEffect<H>(
   apiCall: Observable<H>,
   cb: (data: H) => void,
-  results?: { success?: string; error?: string }
+  results?: { success?: string; error?: string },
 ): Observable<H> {
   const pipeCb = cb ? pipe(tap(cb)) : pipe(tap(() => {}));
 
   return apiCall.pipe(
     pipeCb,
     tap((data: any) =>
-      this.update((state) => ({ ...state, success: results?.success }))
+      this.update((state) => ({ ...state, success: results?.success })),
     ),
     catchError((e) => {
       this.emitError(e);
       return of(e);
-    })
+    }),
   );
 }
 
