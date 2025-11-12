@@ -30,7 +30,7 @@
     "@hirez_io/observer-spy": "2.2.0",
     "@types/node": "20.13.0",
     "typescript": "5.4.5",
-    "vitest": "1.6.0"
+    "vitest": "4.0.8"
   },
   "dependencies": {
     "rxjs": "6.6.7"
